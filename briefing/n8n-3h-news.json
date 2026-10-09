@@ -1,0 +1,96 @@
+{
+  "name": "HOK — World News (3h cache)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 3
+            }
+          ]
+        }
+      },
+      "id": "news-schedule",
+      "name": "Every 3 hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-420, 0]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://gnews.io/api/v4/top-headlines?lang=en&max=15&sortby=pubDate&apikey=' + $env.GNEWS_API_KEY }}",
+        "options": {}
+      },
+      "id": "news-fetch",
+      "name": "Fetch World Headlines",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-200, 0]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Flatten the GNews response into sheet rows.\nconst j = $input.first().json;\nconst arts = j.articles || [];\nif (!arts.length) return [];\nconst now = new Date().toISOString();\nreturn arts.slice(0, 15).map((a) => ({\n  json: {\n    fetched_at: now,\n    title: a.title || '',\n    source: a.source?.name || 'unknown',\n    url: a.url || ''\n  }\n}));"
+      },
+      "id": "news-map",
+      "name": "Map to Rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [20, 0]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.SHEETS_DOC_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "News Cache",
+          "mode": "name"
+        },
+        "options": {
+          "columnsMappingMode": "defineBelow",
+          "columns": {
+            "mapping": [
+              { "sourceColumn": "fetched_at", "targetColumn": "fetched_at" },
+              { "sourceColumn": "title", "targetColumn": "title" },
+              { "sourceColumn": "source", "targetColumn": "source" },
+              { "sourceColumn": "url", "targetColumn": "url" }
+            ]
+          }
+        }
+      },
+      "id": "news-append",
+      "name": "Append to News Cache",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [240, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every 3 hours": {
+      "main": [[{ "node": "Fetch World Headlines", "type": "main", "index": 0 }]]
+    },
+    "Fetch World Headlines": {
+      "main": [[{ "node": "Map to Rows", "type": "main", "index": 0 }]]
+    },
+    "Map to Rows": {
+      "main": [[{ "node": "Append to News Cache", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1", "timezone": "Asia/Dubai" },
+  "pinData": {},
+  "meta": { "templateCredsSetupCompleted": false }
+}

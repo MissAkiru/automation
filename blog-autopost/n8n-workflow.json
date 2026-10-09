@@ -1,0 +1,223 @@
+{
+  "name": "Blog Autopost — LinkedIn + X + Sheet",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "id": "feed-schedule",
+      "name": "Every 30 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-440, 0]
+    },
+    {
+      "parameters": {
+        "url": "https://akirusystems.com/feed.xml",
+        "options": {}
+      },
+      "id": "fetch-feed",
+      "name": "Get RSS feed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-220, 0]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Parse the RSS feed and keep only items not seen before.\n// 'seen' persists across executions in workflow static data.\nconst xml = $input.first().json.body ?? '';\nconst staticData = $getWorkflow().staticData;\nconst seen = new Set(Array.isArray(staticData.seen) ? staticData.seen : []);\n\nfunction decode(s) {\n  return s\n    .replace(/&amp;/g, '&')\n    .replace(/&lt;/g, '<')\n    .replace(/&gt;/g, '>')\n    .replace(/&quot;/g, '\"')\n    .replace(/&#0?39;/g, \"'\");\n}\nfunction pick(block, tag) {\n  const m = new RegExp('<' + tag + '>([\\\\s\\\\S]*?)</' + tag + '>', 'i').exec(block);\n  return m ? decode(m[1].trim()) : '';\n}\n\nconst items = [];\nconst re = /<item>([\\\\s\\\\S]*?)<\\/item>/gi;\nlet m;\nwhile ((m = re.exec(xml)) !== null) {\n  const block = m[1];\n  const link = pick(block, 'link') || pick(block, 'guid');\n  const guid = pick(block, 'guid') || link;\n  if (!guid || seen.has(guid)) continue;\n  items.push({\n    guid,\n    link,\n    title: pick(block, 'title'),\n    description: pick(block, 'description'),\n    pubDate: pick(block, 'pubDate')\n  });\n  seen.add(guid);\n}\n\nif (items.length) {\n  staticData.seen = [...seen].slice(-500);\n}\nreturn items.map((i) => ({ json: i }));"
+      },
+      "id": "filter-new",
+      "name": "Filter New Posts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.linkedin.com/v2/posts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ author: $env.LINKEDIN_AUTHOR_URN, lifecycleState: 'PUBLISHED', visibility: 'PUBLIC', commentary: $('Filter New Posts').item.json.title + '\\n\\n' + $('Filter New Posts').item.json.description + '\\n\\n' + $('Filter New Posts').item.json.link }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseCode": 200
+            }
+          }
+        }
+      },
+      "id": "post-linkedin",
+      "name": "Post to LinkedIn",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "LinkedIn (Authorization: Bearer <user access token>)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.twitter.com/2/tweets",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $('Filter New Posts').item.json.title + ' — ' + $('Filter New Posts').item.json.link }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseCode": 201
+            }
+          }
+        }
+      },
+      "id": "post-x",
+      "name": "Post to X",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 0],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "X (Authorization: Bearer <API bearer token>)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.SHEETS_DOC_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ $env.SHEETS_TAB_NAME || 'Sheet1' }}",
+          "mode": "name"
+        },
+        "options": {
+          "columnsMappingMode": "defineBelow",
+          "columns": {
+            "mapping": [
+              {
+                "sourceColumn": "={{ new Date().toISOString() }}",
+                "targetColumn": "logged_at"
+              },
+              {
+                "sourceColumn": "={{ $('Filter New Posts').item.json.title }}",
+                "targetColumn": "title"
+              },
+              {
+                "sourceColumn": "={{ $('Filter New Posts').item.json.link }}",
+                "targetColumn": "link"
+              },
+              {
+                "sourceColumn": "={{ $('Filter New Posts').item.json.pubDate }}",
+                "targetColumn": "pub_date"
+              },
+              {
+                "sourceColumn": "={{ $json.status_code || 'n/a' }}",
+                "targetColumn": "x_status"
+              }
+            ]
+          }
+        }
+      },
+      "id": "log-sheet",
+      "name": "Log to Google Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [660, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every 30 minutes": {
+      "main": [
+        [
+          {
+            "node": "Get RSS feed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get RSS feed": {
+      "main": [
+        [
+          {
+            "node": "Filter New Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter New Posts": {
+      "main": [
+        [
+          {
+            "node": "Post to LinkedIn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to LinkedIn": {
+      "main": [
+        [
+          {
+            "node": "Post to X",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to X": {
+      "main": [
+        [
+          {
+            "node": "Log to Google Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Dubai"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

@@ -1,0 +1,96 @@
+{
+  "name": "HOK — Morning Call (08:00, Twilio voice)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      },
+      "id": "call-schedule",
+      "name": "Daily 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-480, 0]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.SHEETS_DOC_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Briefings",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "read-brief",
+      "name": "Read Latest Briefing",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [-260, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Take the most recent briefing and trim it to call-length.\n// Output: a single item with json.script (max ~150 words of speech).\nconst rows = $input.all().map((i) => i.json).filter((r) => r && r.briefing);\nif (!rows.length) {\n  return [{ json: { script: '' } }]; // empty → the voice node skips (no call)\n}\nrows.sort((a, b) => String(b.sent_at).localeCompare(String(a.sent_at)));\nconst brief = String(rows[0].briefing || '');\n\nfunction section(label) {\n  const start = brief.indexOf(label);\n  if (start === -1) return '';\n  const rest = brief.slice(start + label.length);\n  const labels = [\"TODAY'S TASKS\", 'DONE YESTERDAY', 'AI ON DECK TODAY', 'WORLD NEWS', 'NEEDS OUR ATTENTION'];\n  let end = rest.length;\n  for (const l of labels) {\n    if (l === label) continue;\n    const i = rest.indexOf(l);\n    if (i !== -1 && i < end) end = i;\n  }\n  return rest.slice(0, end).trim();\n}\n\nconst tasks = section(\"TODAY'S TASKS\").split('\\n').filter((l) => l.trim().startsWith('-')).slice(0, 3);\nconst attn = section('NEEDS OUR ATTENTION').split('\\n').filter((l) => l.trim().startsWith('-')).slice(0, 2);\n\nconst clean = (arr) => arr.map((l) => l.replace(/^-\\s*/, '').trim());\n\nlet script = 'Good morning, Miss Akiru. This is an automated call from your own systems, Akiru Systems. Two-minute brief.\\n\\n';\nscript += tasks.length ? 'Today\\'s tasks: ' + clean(tasks).join('; ') + '.' : 'No tasks logged for today.';\nscript += '\\n\\n';\nscript += attn.length ? 'Needs attention: ' + clean(attn).join('; ') + '.' : 'Nothing beyond the log.';\nscript += '\\n\\nThat\\'s the picture. The full brief is in your inbox. Have a good day.';\n\nreturn [{ json: { script, briefing_date: rows[0].sent_at } }];"
+      },
+      "id": "trim-script",
+      "name": "Trim to Call Script",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-40, 0]
+    },
+    {
+      "parameters": {
+        "resource": "voice",
+        "operation": "initiate",
+        "numberTo": "={{ $env.CALL_TO }}",
+        "message": "={{ $json.script }}",
+        "options": {}
+      },
+      "id": "make-call",
+      "name": "Call Miss Akiru (Twilio)",
+      "type": "n8n-nodes-base.n8nVoice",
+      "typeVersion": 1,
+      "position": [180, 0],
+      "credentials": {
+        "twilioApi": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Twilio (voice)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    }
+  ],
+  "connections": {
+    "Daily 08:00": {
+      "main": [[{ "node": "Read Latest Briefing", "type": "main", "index": 0 }]]
+    },
+    "Read Latest Briefing": {
+      "main": [[{ "node": "Trim to Call Script", "type": "main", "index": 0 }]]
+    },
+    "Trim to Call Script": {
+      "main": [[{ "node": "Call Miss Akiru (Twilio)", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1", "timezone": "Asia/Dubai" },
+  "pinData": {},
+  "meta": { "templateCredsSetupCompleted": false }
+}

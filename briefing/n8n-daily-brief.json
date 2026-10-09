@@ -1,0 +1,188 @@
+{
+  "name": "HOK — Daily Brief (07:00 Dubai)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * *"
+            }
+          ]
+        }
+      },
+      "id": "brief-schedule",
+      "name": "Daily 07:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-620, 0]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.SHEETS_DOC_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "News Cache",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "read-news",
+      "name": "Read News Cache",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [-400, -80],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.SHEETS_DOC_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Daily Log",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "read-log",
+      "name": "Read Daily Log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [-400, 80],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": "gpt-4o-mini",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are the briefing writer for Miss Akiru (Zuhura Akiru), founder of Akiru Systems — AI systems, Dubai/UAE and Nairobi/Kenya. She reads this on her phone over coffee. You will be given two datasets:\n\n1. NEWS ROWS (fetched_at, title, source, url) — use ONLY rows from the last 24 hours; drop near-duplicates; rank by founder-operator relevance.\n2. DAILY LOG ROWS (date, kind, text, owner, status) — kind is one of task, done, ai-plan.\n\nOutput PLAIN TEXT (no markdown headers), under 400 words, in EXACTLY this order with these exact section labels:\n\nHOK DAILY BRIEF — {today's date, Dubai}\n\nTODAY'S TASKS\n- one line per open task (kind=task, status=open, dated today; undated rows carry over). Prefix \"[ME] \" or \"[AGENT] \" by owner. If none: \"- None logged — add rows to the Daily Log tab.\"\n\nDONE YESTERDAY\n- one line per kind=done row dated yesterday. If none: \"- Nothing logged.\"\n\nAI ON DECK TODAY\n- one line per kind=ai-plan row dated today. If none: \"- Standing watch: news cache (3h), content engine (06:00), blog autopost (30m).\"\n\nWORLD NEWS\n- at most 5 lines: \"gist of headline — Source\". Keep only what matters to her: macro/markets, AI policy & models, crypto/payments/onchain, UAE/GCC, Kenya/East Africa, her clients' sectors. If nothing qualifies: \"- Quiet 24h — nothing founder-relevant.\"\n\nNEEDS OUR ATTENTION\n- at most 3 bullets. ONLY a genuine market move, deadline collision, threat, or opportunity tied to the rows. Do not pad. If nothing: \"- Nothing beyond the log.\"\n\nRules: no preamble, no sign-off, no commentary about the brief itself. Facts only. Never invent a task, done-item, or headline. If a dataset is empty, say so in one line in that section and move on."
+            },
+            {
+              "role": "user",
+              "content": "=NEWS ROWS:\n{{ JSON.stringify($('Read News Cache').all().map((i) => i.json)) }}\n\nDAILY LOG ROWS:\n{{ JSON.stringify($('Read Daily Log').all().map((i) => i.json)) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "write-brief",
+      "name": "Write Briefing",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.8,
+      "position": [-180, 0],
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "OpenAI API key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "sendTo": "={{ $env.BRIEF_TO_EMAIL }}",
+        "subject": "=HOK DAILY BRIEF — {{ $now.format('yyyy-MM-dd') }}",
+        "emailFormat": "text",
+        "text": "={{ $json.message.content }}",
+        "options": {}
+      },
+      "id": "send-email",
+      "name": "Email Briefing",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [40, 0],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Gmail (HOK ops account)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.SHEETS_DOC_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Briefings",
+          "mode": "name"
+        },
+        "options": {
+          "columnsMappingMode": "defineBelow",
+          "columns": {
+            "mapping": [
+              {
+                "sourceColumn": "={{ $now.format('yyyy-MM-dd HH:mm') }}",
+                "targetColumn": "sent_at"
+              },
+              {
+                "sourceColumn": "={{ $('Write Briefing').item.json.message.content }}",
+                "targetColumn": "briefing"
+              }
+            ]
+          }
+        }
+      },
+      "id": "archive-brief",
+      "name": "Archive to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [260, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Daily 07:00": {
+      "main": [[{ "node": "Read News Cache", "type": "main", "index": 0 }]]
+    },
+    "Read News Cache": {
+      "main": [[{ "node": "Read Daily Log", "type": "main", "index": 0 }]]
+    },
+    "Read Daily Log": {
+      "main": [[{ "node": "Write Briefing", "type": "main", "index": 0 }]]
+    },
+    "Write Briefing": {
+      "main": [[{ "node": "Email Briefing", "type": "main", "index": 0 }]]
+    },
+    "Email Briefing": {
+      "main": [[{ "node": "Archive to Sheet", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1", "timezone": "Asia/Dubai" },
+  "pinData": {},
+  "meta": { "templateCredsSetupCompleted": false }
+}

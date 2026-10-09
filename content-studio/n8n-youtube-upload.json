@@ -1,0 +1,78 @@
+{
+  "name": "HOK — YouTube Upload (manual, unlisted-first)",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Upload video to YouTube (lands UNLISTED)",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "video file (mp4)",
+              "fieldType": "fileBinary",
+              "requiredField": true,
+              "inputDataFieldName": "video"
+            },
+            {
+              "fieldLabel": "title (≤100 chars, make a claim)",
+              "requiredField": true,
+              "inputDataFieldName": "title"
+            },
+            {
+              "fieldLabel": "description (use the template in VIDEO-PIPELINE.md — carries links + disclosure)",
+              "requiredField": true,
+              "inputDataFieldName": "description"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "yt-form",
+      "name": "Upload Form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [-300, 0]
+    },
+    {
+      "parameters": {
+        "resource": "video",
+        "operation": "upload",
+        "privacyStatus": "unlisted",
+        "source": "form",
+        "inputFieldName": "video",
+        "title": "={{ $json.title }}",
+        "description": "={{ $json.description }}",
+        "options": {
+          "addFields": {
+            "tagsU": [
+              "AI systems",
+              "agentic commerce",
+              "x402",
+              "founder",
+              "Dubai"
+            ]
+          }
+        }
+      },
+      "id": "yt-upload",
+      "name": "Upload (unlisted)",
+      "type": "n8n-nodes-base.youtube",
+      "typeVersion": 1,
+      "position": [-80, 0],
+      "credentials": {
+        "googleOAuth2Api": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Google OAuth2 (YouTube API enabled)"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Upload Form": {
+      "main": [[{ "node": "Upload (unlisted)", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1", "timezone": "Asia/Dubai" },
+  "pinData": {},
+  "meta": { "templateCredsSetupCompleted": false }
+}

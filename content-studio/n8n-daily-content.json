@@ -1,0 +1,196 @@
+{
+  "name": "HOK — Daily Content (LinkedIn + X, 06:00)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 * * *"
+            }
+          ]
+        }
+      },
+      "id": "content-schedule",
+      "name": "Daily 06:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-640, 0]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.SHEETS_DOC_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "News Cache",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "read-news",
+      "name": "Read News (hook)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [-420, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": "gpt-4o-mini",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You write daily social posts for Miss Akiru (Zuhura Akiru), AI systems founder, Akiru Systems (Dubai/Nairobi). Voice rules (hard): first person; open with a concrete claim or fact, never a question; no hype vocabulary (game-changing, revolutionary, unleash, delve, leverage-as-verb, \"in today's world\", \"landscape\", \"journey\"); at least one concrete number or name; short sentences; end on an operational line, never a question; confident and slightly dry, never loud.\n\nYou will be given up to 5 news items from the last 24 hours. If one genuinely connects to her world (AI systems, agents, onchain payments, markets, UAE/Kenya, solo operations), work ONE reference to it in naturally. If none fits, write without a news hook — do not force one.\n\nRespond with ONLY valid JSON, no markdown fences, exactly this shape: {\"linkedin\": string, \"x\": string}\n\nlinkedin: 120–180 words, LinkedIn-native line breaks (blank line between beats), NO hashtags, NO emoji. Include the link https://akirusystems.com only if today is Tuesday or Thursday (you are told the day).\nx: max 270 characters, one sharp claim + one number, optional link (same Tue/Thu rule)."
+            },
+            {
+              "role": "user",
+              "content": "=Today's day of week: {{ $now.format('dddd') }}\n\nNEWS ITEMS (last 24h):\n{{ JSON.stringify($('Read News (hook)').all().map((i) => i.json).slice(0, 5)) }}\n\nWrite the two posts now."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "write-posts",
+      "name": "Write Posts",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.8,
+      "position": [-200, 0],
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "OpenAI API key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.linkedin.com/v2/posts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ author: $env.LINKEDIN_AUTHOR_URN, lifecycleState: 'PUBLISHED', visibility: 'PUBLIC', commentary: JSON.parse($('Write Posts').item.json.message.content).linkedin }) }}",
+        "options": {}
+      },
+      "id": "post-linkedin",
+      "name": "Post to LinkedIn",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [20, 0],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "LinkedIn (Authorization: Bearer <user access token>)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.twitter.com/2/tweets",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: JSON.parse($('Write Posts').item.json.message.content).x }) }}",
+        "options": {}
+      },
+      "id": "post-x",
+      "name": "Post to X",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [240, 0],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "X (Authorization: Bearer <API bearer token>)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.SHEETS_DOC_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Content Log",
+          "mode": "name"
+        },
+        "options": {
+          "columnsMappingMode": "defineBelow",
+          "columns": {
+            "mapping": [
+              {
+                "sourceColumn": "={{ $now.format('yyyy-MM-dd HH:mm') }}",
+                "targetColumn": "date"
+              },
+              {
+                "sourceColumn": "linkedin+x",
+                "targetColumn": "platform"
+              },
+              {
+                "sourceColumn": "={{ JSON.stringify(JSON.parse($('Write Posts').item.json.message.content)) }}",
+                "targetColumn": "text"
+              },
+              {
+                "sourceColumn": "={{ $json.status_code || 'n/a' }}",
+                "targetColumn": "status"
+              }
+            ]
+          }
+        }
+      },
+      "id": "log-content",
+      "name": "Log to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [460, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Daily 06:00": {
+      "main": [[{ "node": "Read News (hook)", "type": "main", "index": 0 }]]
+    },
+    "Read News (hook)": {
+      "main": [[{ "node": "Write Posts", "type": "main", "index": 0 }]]
+    },
+    "Write Posts": {
+      "main": [[{ "node": "Post to LinkedIn", "type": "main", "index": 0 }]]
+    },
+    "Post to LinkedIn": {
+      "main": [[{ "node": "Post to X", "type": "main", "index": 0 }]]
+    },
+    "Post to X": {
+      "main": [[{ "node": "Log to Sheet", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1", "timezone": "Asia/Dubai" },
+  "pinData": {},
+  "meta": { "templateCredsSetupCompleted": false }
+}
